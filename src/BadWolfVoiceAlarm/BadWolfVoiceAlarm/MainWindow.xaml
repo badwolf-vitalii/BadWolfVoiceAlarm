@@ -143,6 +143,7 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <ComboBox x:Name="AudioOutputDeviceComboBox" Grid.Column="0"
+                                      VerticalContentAlignment="Center"
                                       Height="38" Padding="9,6"
                                       Background="#F8FAFC" Foreground="#111827"
                                       BorderBrush="#35435A" BorderThickness="1"
