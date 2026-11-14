@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -39,6 +40,7 @@ public partial class MainWindow : Window
             AppendLog($"Could not load settings: {ex.Message}");
         }
 
+        RefreshAudioDevices(_settings.AudioOutputDeviceId, _settings.AudioOutputDeviceName);
         AppendLog("Application started. Waiting for the bot connection.");
         Loaded += MainWindow_Loaded;
     }
@@ -120,6 +122,43 @@ public partial class MainWindow : Window
         }
     }
 
+    private void RefreshAudioDevices(string? preferredId = null, string? preferredName = null)
+    {
+        string selectedId = preferredId ??
+            (AudioOutputDeviceComboBox.SelectedItem as AudioOutputDevice)?.Id ?? string.Empty;
+        string selectedName = preferredName ??
+            (AudioOutputDeviceComboBox.SelectedItem as AudioOutputDevice)?.Name ?? selectedId;
+
+        List<AudioOutputDevice> devices;
+        try
+        {
+            devices = AlarmService.GetOutputDevices();
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Could not enumerate audio devices: {ex.Message}");
+            devices = new List<AudioOutputDevice>
+            {
+                new(AudioOutputDevice.SystemDefaultId, "System default (Windows)")
+            };
+        }
+
+        if (!string.IsNullOrEmpty(selectedId) && !devices.Exists(device => device.Id == selectedId))
+        {
+            devices.Add(new AudioOutputDevice(selectedId, selectedName, IsAvailable: false));
+        }
+
+        AudioOutputDeviceComboBox.ItemsSource = devices;
+        AudioOutputDeviceComboBox.SelectedItem =
+            devices.Find(device => device.Id == selectedId) ?? devices[0];
+    }
+
+    private void RefreshAudioDevicesButton_Click(object sender, RoutedEventArgs e)
+    {
+        RefreshAudioDevices();
+        AppendLog("Audio output devices refreshed.");
+    }
+
     private VoiceFilter ReadFilter() => VoiceFilter.Create(
         GuildIdInput.Text, ChannelIdsInput.Text,
         AlertOnMovesCheckBox.IsChecked == true,
@@ -138,7 +177,9 @@ public partial class MainWindow : Window
                 AlertOnMoves = AlertOnMovesCheckBox.IsChecked == true,
                 IgnoreBots = IgnoreBotsCheckBox.IsChecked == true,
                 ForceMaximumVolume = ForceMaxVolumeCheckBox.IsChecked == true,
-                AutoConnect = AutoConnectCheckBox.IsChecked == true
+                AutoConnect = AutoConnectCheckBox.IsChecked == true,
+                AudioOutputDeviceId = (AudioOutputDeviceComboBox.SelectedItem as AudioOutputDevice)?.Id ?? string.Empty,
+                AudioOutputDeviceName = (AudioOutputDeviceComboBox.SelectedItem as AudioOutputDevice)?.Name ?? string.Empty
             };
 
             _settingsStore.Save(updated);
@@ -253,7 +294,9 @@ public partial class MainWindow : Window
 
         try
         {
-            if (_alarm.Start(ForceMaxVolumeCheckBox.IsChecked == true))
+            string selectedDeviceId =
+                (AudioOutputDeviceComboBox.SelectedItem as AudioOutputDevice)?.Id ?? string.Empty;
+            if (_alarm.Start(ForceMaxVolumeCheckBox.IsChecked == true, selectedDeviceId))
             {
                 AlarmText.Text = description;
                 StopAlarmButton.IsEnabled = true;
@@ -282,7 +325,7 @@ public partial class MainWindow : Window
         try
         {
             _alarm.Stop();
-            AppendLog("Alarm stopped. Windows volume was restored if it was changed.");
+            AppendLog("Alarm stopped. The selected output device volume was restored if it was changed.");
         }
         catch (Exception ex)
         {

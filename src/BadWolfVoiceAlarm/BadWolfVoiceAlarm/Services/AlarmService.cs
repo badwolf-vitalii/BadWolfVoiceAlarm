@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using BadWolfVoiceAlarm.Models;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
@@ -10,10 +12,11 @@ public sealed class AlarmService : IDisposable
     private readonly MemoryStream _audioData;
     private readonly WaveFileReader _audioReader;
     private readonly LoopingWaveStream _loopStream;
-    private WaveOutEvent? _output;
-    private MMDevice? _volumeDevice;
+    private WasapiOut? _output;
+    private MMDevice? _playbackDevice;
     private float _previousVolume;
     private bool _previousMute;
+    private bool _shouldRestoreVolume;
 
     public bool IsActive => _output is not null;
 
@@ -24,7 +27,30 @@ public sealed class AlarmService : IDisposable
         _loopStream = new LoopingWaveStream(_audioReader);
     }
 
-    public bool Start(bool forceMaximumVolume)
+    public static List<AudioOutputDevice> GetOutputDevices()
+    {
+        var devices = new List<AudioOutputDevice>
+        {
+            new(AudioOutputDevice.SystemDefaultId, "System default (Windows)")
+        };
+
+        using var enumerator = new MMDeviceEnumerator();
+        foreach (MMDevice device in enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
+        {
+            try
+            {
+                devices.Add(new AudioOutputDevice(device.ID, device.FriendlyName));
+            }
+            finally
+            {
+                device.Dispose();
+            }
+        }
+
+        return devices;
+    }
+
+    public bool Start(bool forceMaximumVolume, string? outputDeviceId)
     {
         if (IsActive)
         {
@@ -33,67 +59,94 @@ public sealed class AlarmService : IDisposable
 
         try
         {
+            using var enumerator = new MMDeviceEnumerator();
+            _playbackDevice = string.IsNullOrEmpty(outputDeviceId)
+                ? enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia)
+                : enumerator.GetDevice(outputDeviceId);
+
+            if (_playbackDevice.State != DeviceState.Active)
+            {
+                throw new InvalidOperationException(
+                    "The selected audio output device is unavailable. Reconnect it or select another device.");
+            }
+
             if (forceMaximumVolume)
             {
-                using var enumerator = new MMDeviceEnumerator();
-                _volumeDevice = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-                _previousVolume = _volumeDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
-                _previousMute = _volumeDevice.AudioEndpointVolume.Mute;
-                _volumeDevice.AudioEndpointVolume.MasterVolumeLevelScalar = 1.0f;
-                _volumeDevice.AudioEndpointVolume.Mute = false;
+                var volume = _playbackDevice.AudioEndpointVolume;
+                _previousVolume = volume.MasterVolumeLevelScalar;
+                _previousMute = volume.Mute;
+                _shouldRestoreVolume = true;
+                volume.MasterVolumeLevelScalar = 1.0f;
+                volume.Mute = false;
             }
 
             _audioReader.Position = 0;
-            _output = new WaveOutEvent { DesiredLatency = 100, Volume = 1.0f };
+            _output = new WasapiOut(_playbackDevice, AudioClientShareMode.Shared, useEventSync: true, latency: 100);
             _output.Init(_loopStream);
             _output.Play();
             return true;
         }
         catch
         {
-            Stop();
+            try
+            {
+                Stop();
+            }
+            catch
+            {
+                // Preserve the original playback error if cleanup also fails.
+            }
+
             throw;
         }
     }
 
     public void Stop()
     {
-        WaveOutEvent? output = _output;
+        WasapiOut? output = _output;
         _output = null;
+
         try
         {
-            try
-            {
-                output?.Stop();
-            }
-            finally
-            {
-                output?.Dispose();
-            }
+            output?.Stop();
         }
         finally
         {
-            RestoreVolume();
+            try
+            {
+                output?.Dispose();
+            }
+            finally
+            {
+                try
+                {
+                    RestoreVolume();
+                }
+                finally
+                {
+                    _playbackDevice?.Dispose();
+                    _playbackDevice = null;
+                }
+            }
         }
     }
 
     private void RestoreVolume()
     {
-        MMDevice? device = _volumeDevice;
-        _volumeDevice = null;
-        if (device is null)
+        if (!_shouldRestoreVolume || _playbackDevice is null)
         {
             return;
         }
 
+        _shouldRestoreVolume = false;
+        var volume = _playbackDevice.AudioEndpointVolume;
         try
         {
-            device.AudioEndpointVolume.MasterVolumeLevelScalar = _previousVolume;
-            device.AudioEndpointVolume.Mute = _previousMute;
+            volume.MasterVolumeLevelScalar = _previousVolume;
         }
         finally
         {
-            device.Dispose();
+            volume.Mute = _previousMute;
         }
     }
 

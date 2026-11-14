@@ -134,7 +134,33 @@
                         <TextBlock Text="Alarm behavior" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,15" />
                         <CheckBox x:Name="AlertOnMovesCheckBox" Content="Also trigger when someone moves between voice channels" />
                         <CheckBox x:Name="IgnoreBotsCheckBox" Content="Ignore other Discord bots" />
-                        <CheckBox x:Name="ForceMaxVolumeCheckBox" Content="Temporarily set Windows master volume to 100% and unmute" />
+                        <CheckBox x:Name="ForceMaxVolumeCheckBox" Content="Temporarily set selected device volume to 100% and unmute" />
+                        <TextBlock Text="Audio output device" Style="{StaticResource FieldLabel}" />
+                        <Grid Margin="0,0,0,7">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox x:Name="AudioOutputDeviceComboBox" Grid.Column="0"
+                                      Height="38" Padding="9,6"
+                                      Background="#0E1727" Foreground="#F8FAFC"
+                                      BorderBrush="#35435A" BorderThickness="1"
+                                      DisplayMemberPath="DisplayName">
+                                <ComboBox.ItemContainerStyle>
+                                    <Style TargetType="ComboBoxItem">
+                                        <Setter Property="Foreground" Value="#111827" />
+                                        <Setter Property="Background" Value="#F8FAFC" />
+                                        <Setter Property="Padding" Value="9,6" />
+                                    </Style>
+                                </ComboBox.ItemContainerStyle>
+                            </ComboBox>
+                            <Button Grid.Column="2" Content="Refresh devices"
+                                    Click="RefreshAudioDevicesButton_Click" />
+                        </Grid>
+                        <TextBlock Text="The selected device is used for new alarms and Test alarm."
+                                   Foreground="{StaticResource SubtleBrush}" FontSize="11"
+                                   Margin="0,0,0,13" TextWrapping="Wrap" />
                         <CheckBox x:Name="AutoConnectCheckBox" Content="Connect automatically when this application starts" />
                         <CheckBox x:Name="LaunchAtStartupCheckBox" Content="Launch with Windows (after signing in)" />
                         <TextBlock Text="The sound loops until you press Stop Alarm. The previous volume/mute state is restored."
