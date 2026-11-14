@@ -9,4 +9,6 @@ public sealed class AppSettings
     public bool IgnoreBots { get; set; } = true;
     public bool ForceMaximumVolume { get; set; } = true;
     public bool AutoConnect { get; set; } = true;
+    public string AudioOutputDeviceId { get; set; } = string.Empty;
+    public string AudioOutputDeviceName { get; set; } = string.Empty;
 }
