@@ -19,6 +19,10 @@ public sealed class VoiceFilter
     public bool AlertOnMoves { get; }
     public bool IgnoreBots { get; }
 
+    public string Describe() =>
+        $"server={(GuildId?.ToString() ?? "all")}, channels={(_channelIds.Count == 0 ? "all" : string.Join(", ", _channelIds))}, " +
+        $"alertOnMoves={AlertOnMoves}, ignoreBots={IgnoreBots}";
+
     public bool Matches(ulong guildId, ulong channelId) =>
         (GuildId is null || GuildId == guildId) &&
         (_channelIds.Count == 0 || _channelIds.Contains(channelId));

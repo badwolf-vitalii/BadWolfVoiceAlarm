@@ -116,15 +116,42 @@ public sealed class DiscordVoiceMonitor : IAsyncDisposable
 
     private Task OnReadyAsync()
     {
+        DiscordSocketClient? client = _client;
+        if (client is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        VoiceFilter filter = Volatile.Read(ref _filter);
         StatusChanged?.Invoke("Connected");
-        MessageLogged?.Invoke($"Listening in {_client?.Guilds.Count ?? 0} Discord server(s).");
+        MessageLogged?.Invoke($"Discord gateway ready as {client.CurrentUser?.Username ?? "unknown bot"}. " +
+                              $"Listening in {client.Guilds.Count} Discord server(s).");
+        MessageLogged?.Invoke($"Active voice filters: {filter.Describe()}");
+
+        if (client.Guilds.Count == 0)
+        {
+            MessageLogged?.Invoke("WARNING: The bot is in no servers. Install the bot on the target Discord server.");
+        }
+
+        foreach (SocketGuild guild in client.Guilds)
+        {
+            MessageLogged?.Invoke(
+                $"Server available: {guild.Name} (ID {guild.Id}), visible voice channels: {guild.VoiceChannels.Count}.");
+        }
+
+        if (filter.GuildId.HasValue && client.GetGuild(filter.GuildId.Value) is null)
+        {
+            MessageLogged?.Invoke(
+                $"WARNING: Server filter ID {filter.GuildId.Value} does not match any server available to the bot.");
+        }
+
         return Task.CompletedTask;
     }
 
     private Task OnDisconnectedAsync(Exception exception)
     {
         StatusChanged?.Invoke("Reconnecting...");
-        MessageLogged?.Invoke($"Discord connection lost: {exception.Message}");
+        MessageLogged?.Invoke($"Discord connection lost: {exception?.Message ?? "Reason unavailable"}");
         return Task.CompletedTask;
     }
 
@@ -140,35 +167,87 @@ public sealed class DiscordVoiceMonitor : IAsyncDisposable
 
     private Task OnVoiceStateUpdatedAsync(SocketUser user, SocketVoiceState before, SocketVoiceState after)
     {
-        SocketVoiceChannel? newChannel = after.VoiceChannel;
-        if (newChannel is null)
+        try
         {
-            return Task.CompletedTask;
+            HandleVoiceStateUpdate(user, before, after);
+        }
+        catch (Exception ex)
+        {
+            MessageLogged?.Invoke($"Voice-state event processing error: {ex}");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void HandleVoiceStateUpdate(SocketUser user, SocketVoiceState before, SocketVoiceState after)
+    {
+        // VoiceChannel can be null when channel metadata is not cached, even when the ID is present.
+        ulong? previousId = before.VoiceChannelId;
+        ulong? currentId = after.VoiceChannelId;
+        VoiceChannelTransition transition = VoiceChannelTransitionClassifier.Classify(previousId, currentId);
+
+        // Mute/deafen/video changes in the same channel are not join events.
+        if (transition == VoiceChannelTransition.Unchanged)
+        {
+            return;
+        }
+
+        SocketGuild? guild = (user as SocketGuildUser)?.Guild ??
+                             after.VoiceChannel?.Guild ??
+                             before.VoiceChannel?.Guild;
+        string userName = user is SocketGuildUser member ? member.DisplayName : user.Username;
+        string previousName = previousId.HasValue
+            ? before.VoiceChannel?.Name ?? previousId.Value.ToString()
+            : "outside voice";
+        string currentName = currentId.HasValue
+            ? after.VoiceChannel?.Name ?? currentId.Value.ToString()
+            : "outside voice";
+        MessageLogged?.Invoke(
+            $"Voice {transition}: {userName} | {previousName} -> {currentName} | " +
+            $"server={guild?.Name ?? "unknown"} (ID {guild?.Id.ToString() ?? "unknown"}).");
+
+        if (transition == VoiceChannelTransition.Left)
+        {
+            return;
         }
 
         VoiceFilter filter = Volatile.Read(ref _filter);
         if (filter.IgnoreBots && user.IsBot)
         {
-            return Task.CompletedTask;
+            MessageLogged?.Invoke($"Voice event ignored: {userName} is a bot (Ignore bots enabled).");
+            return;
         }
 
-        bool isJoin = before.VoiceChannel is null;
-        bool isMove = before.VoiceChannel is not null && before.VoiceChannel.Id != newChannel.Id;
-        if (!isJoin && !(isMove && filter.AlertOnMoves))
+        if (transition == VoiceChannelTransition.Moved && !filter.AlertOnMoves)
         {
-            return Task.CompletedTask;
+            MessageLogged?.Invoke("Voice event ignored: channel moves are disabled in settings.");
+            return;
         }
 
-        if (!filter.Matches(newChannel.Guild.Id, newChannel.Id))
+        if (guild is null || !currentId.HasValue)
         {
-            return Task.CompletedTask;
+            MessageLogged?.Invoke(
+                "Voice event ignored: Discord did not provide a resolvable server/channel ID. " +
+                "Check the bot's View Channels permission.");
+            return;
         }
 
-        string userName = user is SocketGuildUser member ? member.DisplayName : user.Username;
+        if (!filter.Matches(guild.Id, currentId.Value))
+        {
+            MessageLogged?.Invoke(
+                $"Voice event ignored: guild/channel does not match the active filters ({filter.Describe()}).");
+            return;
+        }
+
+        if (after.VoiceChannel is null)
+        {
+            MessageLogged?.Invoke(
+                $"Voice channel {currentId.Value} metadata is not cached; the event will still trigger the alarm.");
+        }
+
         UserEnteredChannel?.Invoke(new VoiceJoinEvent(
-            userName, newChannel.Guild.Name, newChannel.Name,
-            newChannel.Guild.Id, newChannel.Id, isMove));
-        return Task.CompletedTask;
+            userName, guild.Name, currentName, guild.Id, currentId.Value,
+            transition == VoiceChannelTransition.Moved));
     }
 
     public async ValueTask DisposeAsync()
