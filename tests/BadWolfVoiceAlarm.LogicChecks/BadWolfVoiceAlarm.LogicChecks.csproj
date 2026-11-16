@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/BadWolfVoiceAlarm/BadWolfVoiceAlarm/Models/VoiceChannelTransition.cs" Link="VoiceChannelTransition.cs" />
+    <Compile Include="../../src/BadWolfVoiceAlarm/BadWolfVoiceAlarm/Models/VoiceFilter.cs" Link="VoiceFilter.cs" />
+  </ItemGroup>
+</Project>

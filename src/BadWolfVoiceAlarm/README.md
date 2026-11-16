@@ -47,6 +47,17 @@ Enable Discord **User Settings > Advanced > Developer Mode**, right-click a serv
 - Optional **Connect automatically** lets the app reconnect when Windows launches it.
 - The bot's token is saved in `%LOCALAPPDATA%\BadWolfVoiceAlarm\settings.json`, encrypted with Windows DPAPI for the current Windows account. No plaintext token belongs in source control.
 
+## Troubleshooting voice events
+
+1. Confirm the status shows **Connected** and press **Test alarm** to verify playback on the selected audio output device.
+2. Fully leave voice, then join the channel again. Connecting the bot while someone is already in voice is **not** a new join event.
+3. Check **Event log** for `Discord gateway ready`, the bot's available **Server ID**, and the active voice filters. If zero servers are listed, install the bot on your server.
+4. On each voice join/move/leave, the log now records the transition. If a join is marked `Voice event ignored`, check the reason: server/channel ID mismatch, bot filtering, or disabled move alerts.
+5. A voice channel ID can be available even when Discord.Net has not cached its channel metadata. The alarm now uses that ID instead of discarding the join; the log describes the missing metadata.
+6. If the join is logged and **Alarm started** appears but you hear nothing, check Windows per-device volume, the selected output device, and whether **Test alarm** plays there.
+
+The app only needs the Discord `GUILD_VOICE_STATES` Gateway intent (already enabled in code); no privileged intent or voice connection is required. The bot must be installed on the target server with permission to view the monitored channels.
+
 ## Publish a portable single-file Windows EXE
 
 Run from the directory containing the `.csproj` (Windows Terminal / Developer PowerShell):
